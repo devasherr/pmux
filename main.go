@@ -139,14 +139,12 @@ func handleSave() error {
 		return fmt.Errorf("faied to marshal config: %w", err)
 	}
 
-	fmt.Println(string(data))
-
-	// _, err = f.Write(data)
+	_, err = f.Write(data)
 	return err
 }
 
-func createPane(sessionName, windowName string, _ Pane) error {
-	_, err := runTmuxCommand("split-window", "-t", sessionName+":"+windowName)
+func createPane(sessionName, windowName string, pane Pane) error {
+	_, err := runTmuxCommand("split-window", "-t", sessionName+":"+windowName, "-c", pane.Path)
 	if err != nil {
 		return err
 	}
@@ -178,6 +176,8 @@ func createSession(session Session) error {
 		if err := createWindow(session.Name, window); err != nil {
 			return err
 		}
+
+		runTmuxCommand("kill-pane", "-t", session.Name+":"+window.Name+"."+"1")
 	}
 
 	return nil
@@ -187,6 +187,10 @@ func replyState(config Config) error {
 	for _, session := range config.Sessions {
 		if err := createSession(session); err != nil {
 			return err
+		}
+
+		if _, err := runTmuxCommand("kill-window", "-t", session.Name+":1"); err != nil {
+			return fmt.Errorf("error deleting default window: %w", err)
 		}
 	}
 	return nil
