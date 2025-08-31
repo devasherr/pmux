@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -15,6 +16,7 @@ type Pane struct {
 }
 
 type Window struct {
+	// TODO: include other details like index because window name own its own is not unique
 	WindowName  string
 	WindowPanes []Pane
 }
@@ -68,6 +70,7 @@ func getSessionWindows(sessionName string) []Window {
 			idx++
 		}
 
+		// TODO: also include the path the window is at
 		w := Window{
 			WindowName:  strings.TrimRight(windowName[:idx], "*-"),
 			WindowPanes: getWindowPanes(sessionName + ":" + windowName[:idx]),
@@ -109,26 +112,26 @@ func syncState(mainConfig *Config, currentConfig Config) error {
 func handleSave() error {
 	f, err := os.OpenFile(".pmux.config", os.O_RDWR|os.O_CREATE, 0644)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to open .pmux.config file: %w", err)
 	}
 	defer f.Close()
 
 	data, err := io.ReadAll(f)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to read from config file: %w", err)
 	}
 
 	var config Config
 	if len(data) > 0 {
 		if err := json.Unmarshal(data, &config); err != nil {
-			return err
+			return fmt.Errorf("error while unmarshal: %w", err)
 		}
 	}
 
 	// load current start of tmux
 	config, err = loadCurrentState()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to load current tmux state: %w", err)
 	}
 
 	// updates config
@@ -138,14 +141,83 @@ func handleSave() error {
 
 	data, err = json.MarshalIndent(config, "", " ")
 	if err != nil {
-		return err
+		return fmt.Errorf("faied to marshal config: %w", err)
 	}
 
 	_, err = f.Write(data)
 	return err
 }
 
-func handleRestore() {}
+func createPane(sessionName, windowName string, _ Pane) error {
+	_, err := runTmuxCommand("split-window", "-t", sessionName+":"+windowName)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func createWindow(sessionName string, window Window) error {
+	// TODO: add -c to specify dir path
+	_, err := runTmuxCommand("new-window", "-t", sessionName, "-n", window.WindowName)
+	if err != nil {
+		return err
+	}
+
+	for _, pane := range window.WindowPanes {
+		if err := createPane(sessionName, window.WindowName, pane); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func createSession(session Session) error {
+	_, err := runTmuxCommand("new", "-d", "-s", session.SessionName)
+	if err != nil {
+		return err
+	}
+
+	for _, window := range session.SessionWindows {
+		if err := createWindow(session.SessionName, window); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func replyState(config Config) error {
+	for _, session := range config.Sessions {
+		if err := createSession(session); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func handleRestore() error {
+	f, err := os.Open(".pmux.config")
+	if err != nil {
+		return fmt.Errorf("failed to open .pmux.config file: %w", err)
+	}
+	defer f.Close()
+
+	data, err := io.ReadAll(f)
+	if err != nil {
+		return fmt.Errorf("failed to read from config file: %w", err)
+	}
+
+	var config Config
+	if err := json.Unmarshal(data, &config); err != nil {
+		return fmt.Errorf("faild to marshal config: %w", err)
+	}
+
+	if err := replyState(config); err != nil {
+		return fmt.Errorf("failed to reply config state: %w", err)
+	}
+
+	return nil
+}
 
 func main() {
 	home, err := os.UserHomeDir()
@@ -166,10 +238,11 @@ func main() {
 	case "save":
 		if err := handleSave(); err != nil {
 			log.Fatal(err)
-			// log.Fatal("failed to save tmux state: ", err)
 		}
 	case "restore":
-		handleRestore()
+		if err := handleRestore(); err != nil {
+			log.Fatal(err)
+		}
 	default:
 		log.Fatalf("incorrect arg: %s", command)
 	}
