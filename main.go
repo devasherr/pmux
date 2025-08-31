@@ -12,18 +12,18 @@ import (
 
 type Pane struct {
 	// TODO: include other detail for pane
-	PaneIndex string
+	Index string
 }
 
 type Window struct {
 	// TODO: include other details like index because window name own its own is not unique
-	WindowName  string
-	WindowPanes []Pane
+	Name  string
+	Panes []Pane
 }
 
 type Session struct {
-	SessionName    string
-	SessionWindows []Window
+	Name    string
+	Windows []Window
 }
 
 type Config struct {
@@ -45,7 +45,7 @@ func getWindowPanes(windowName string) []Pane {
 	panes := []Pane{}
 	for _, pane := range strings.Split(windowPanes, "\n") {
 		p := Pane{
-			PaneIndex: strings.Split(pane, ":")[0],
+			Index: strings.Split(pane, ":")[0],
 		}
 
 		panes = append(panes, p)
@@ -72,8 +72,8 @@ func getSessionWindows(sessionName string) []Window {
 
 		// TODO: also include the path the window is at
 		w := Window{
-			WindowName:  strings.TrimRight(windowName[:idx], "*-"),
-			WindowPanes: getWindowPanes(sessionName + ":" + windowName[:idx]),
+			Name:  strings.TrimRight(windowName[:idx], "*-"),
+			Panes: getWindowPanes(sessionName + ":" + windowName[:idx]),
 		}
 
 		windows = append(windows, w)
@@ -93,8 +93,8 @@ func loadCurrentState() (Config, error) {
 	for _, session := range strings.Split(tmuxSessions, "\n") {
 		sessionName := strings.Split(session, ":")[0]
 		s := Session{
-			SessionName:    sessionName,
-			SessionWindows: getSessionWindows(sessionName),
+			Name:    sessionName,
+			Windows: getSessionWindows(sessionName),
 		}
 
 		sessions = append(sessions, s)
@@ -110,7 +110,7 @@ func syncState(mainConfig *Config, currentConfig Config) error {
 }
 
 func handleSave() error {
-	f, err := os.OpenFile(".pmux.config", os.O_RDWR|os.O_CREATE, 0644)
+	f, err := os.OpenFile(".pmux.config", os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
 	if err != nil {
 		return fmt.Errorf("failed to open .pmux.config file: %w", err)
 	}
@@ -158,13 +158,13 @@ func createPane(sessionName, windowName string, _ Pane) error {
 
 func createWindow(sessionName string, window Window) error {
 	// TODO: add -c to specify dir path
-	_, err := runTmuxCommand("new-window", "-t", sessionName, "-n", window.WindowName)
+	_, err := runTmuxCommand("new-window", "-t", sessionName, "-n", window.Name)
 	if err != nil {
 		return err
 	}
 
-	for _, pane := range window.WindowPanes {
-		if err := createPane(sessionName, window.WindowName, pane); err != nil {
+	for _, pane := range window.Panes {
+		if err := createPane(sessionName, window.Name, pane); err != nil {
 			return err
 		}
 	}
@@ -172,13 +172,13 @@ func createWindow(sessionName string, window Window) error {
 }
 
 func createSession(session Session) error {
-	_, err := runTmuxCommand("new", "-d", "-s", session.SessionName)
+	_, err := runTmuxCommand("new", "-d", "-s", session.Name)
 	if err != nil {
 		return err
 	}
 
-	for _, window := range session.SessionWindows {
-		if err := createWindow(session.SessionName, window); err != nil {
+	for _, window := range session.Windows {
+		if err := createWindow(session.Name, window); err != nil {
 			return err
 		}
 	}
