@@ -13,10 +13,11 @@ import (
 type Pane struct {
 	// TODO: include other detail for pane
 	Index string
+	Path  string
 }
 
 type Window struct {
-	// TODO: include other details like index because window name own its own is not unique
+	Index string
 	Name  string
 	Panes []Pane
 }
@@ -36,16 +37,18 @@ func runTmuxCommand(args ...string) (string, error) {
 	return strings.TrimSpace(string(res)), err
 }
 
-func getWindowPanes(windowName string) []Pane {
-	windowPanes, err := runTmuxCommand("list-panes", "-t", strings.TrimRight(windowName, "*-"))
+func getWindowPanes(sessionName, windowName string) []Pane {
+	windowPanes, err := runTmuxCommand("list-panes", "-t", sessionName+":"+windowName, "-F", "#P #{pane_current_path}")
 	if err != nil {
 		return nil
 	}
 
 	panes := []Pane{}
 	for _, pane := range strings.Split(windowPanes, "\n") {
+		paneComponents := strings.Split(pane, " ")
 		p := Pane{
-			Index: strings.Split(pane, ":")[0],
+			Index: paneComponents[0],
+			Path:  paneComponents[1],
 		}
 
 		panes = append(panes, p)
@@ -55,25 +58,18 @@ func getWindowPanes(windowName string) []Pane {
 }
 
 func getSessionWindows(sessionName string) []Window {
-	sessionWindows, err := runTmuxCommand("list-windows", "-t", sessionName)
+	sessionWindows, err := runTmuxCommand("list-windows", "-t", sessionName, "-F", "#I #W")
 	if err != nil {
 		return nil
 	}
 
 	windows := []Window{}
 	for _, window := range strings.Split(sessionWindows, "\n") {
-		windowName := strings.Split(window, ":")[1]
-		windowName = strings.TrimSpace(windowName)
-
-		idx := 0
-		for windowName[idx] != ' ' {
-			idx++
-		}
-
-		// TODO: also include the path the window is at
+		windowComponents := strings.Split(window, " ")
 		w := Window{
-			Name:  strings.TrimRight(windowName[:idx], "*-"),
-			Panes: getWindowPanes(sessionName + ":" + windowName[:idx]),
+			Index: windowComponents[0],
+			Name:  windowComponents[1],
+			Panes: getWindowPanes(sessionName, windowComponents[1]),
 		}
 
 		windows = append(windows, w)
@@ -84,17 +80,16 @@ func getSessionWindows(sessionName string) []Window {
 
 func loadCurrentState() (Config, error) {
 	// sessions
-	tmuxSessions, err := runTmuxCommand("ls")
+	tmuxSessions, err := runTmuxCommand("ls", "-F", "#S")
 	if err != nil {
 		return Config{}, err
 	}
 
 	sessions := []Session{}
 	for _, session := range strings.Split(tmuxSessions, "\n") {
-		sessionName := strings.Split(session, ":")[0]
 		s := Session{
-			Name:    sessionName,
-			Windows: getSessionWindows(sessionName),
+			Name:    session,
+			Windows: getSessionWindows(session),
 		}
 
 		sessions = append(sessions, s)
@@ -144,7 +139,9 @@ func handleSave() error {
 		return fmt.Errorf("faied to marshal config: %w", err)
 	}
 
-	_, err = f.Write(data)
+	fmt.Println(string(data))
+
+	// _, err = f.Write(data)
 	return err
 }
 
